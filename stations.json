@@ -1,0 +1,12 @@
+[
+    { "nombre": "Estacion Central Comayagua", "lat": 14.464, "lon": -87.643 },
+    { "nombre": "Estacion Siguatepeque Norte", "lat": 14.595, "lon": -87.838 },
+    { "nombre": "Estacion La Paz", "lat": 14.316, "lon": -87.679 },
+    { "nombre": "Estacion Policial San Pedro Sula", "lat": 15.504, "lon": -88.025 },
+    { "nombre": "Estacion Policial Tegucigalpa Centro", "lat": 14.104, "lon": -87.204 },
+    { "nombre": "Estacion Policial Choluteca", "lat": 13.305, "lon": -87.172 },
+    { "nombre": "Estacion Policial Roatan", "lat": 16.326, "lon": -86.536 },
+    { "nombre": "Estacion Policial Copan Ruinas", "lat": 14.832, "lon": -89.150 },
+    { "nombre": "Estacion Policial Danli", "lat": 14.032, "lon": -86.574 },
+    { "nombre": "Estacion Policial Puerto Lempira", "lat": 15.266, "lon": -83.766 }
+]
