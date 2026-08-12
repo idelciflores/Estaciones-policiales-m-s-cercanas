@@ -6,7 +6,6 @@ import folium
 from streamlit_folium import st_folium
 from streamlit_js_eval import get_geolocation
 
-# Configuración inicial del layout en Streamlit 💻
 st.set_page_config(
     page_title="Navegación Policial Honduras", 
     layout="wide",
@@ -22,7 +21,6 @@ st.markdown("""
 
 st.title("Sistema de Geolocalización Policial 👮‍♂️ Honduras")
 
-# Cálculo Haversine para respaldo de distancia recta 📏
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
     dlat = math.radians(lat2 - lat1)
@@ -31,7 +29,6 @@ def haversine(lat1, lon1, lat2, lon2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-# Obtención de ruta vial exacta con la API de OSRM 🛣️
 def obtener_ruta_carretera(lat_origen, lon_origen, lat_destino, lon_destino):
     url = f"http://router.project-osrm.org/route/v1/driving/{lon_origen},{lat_origen};{lon_destino},{lat_destino}?overview=full&geometries=geojson"
     try:
@@ -46,15 +43,15 @@ def obtener_ruta_carretera(lat_origen, lon_origen, lat_destino, lon_destino):
         pass
     return [[lat_origen, lon_origen], [lat_destino, lon_destino]], haversine(lat_origen, lon_origen, lat_destino, lon_destino)
 
-# Cargar las estaciones desde el archivo json 📄
+# Cargar json
 try:
     with open('stations.json', 'r', encoding='utf-8') as f:
         estaciones = json.load(f)
 except FileNotFoundError:
-    st.error("Error: No se encontró el archivo 'stations.json'.")
+    st.error("No se encontró 'stations.json'.")
     st.stop()
 
-# Captura de geolocalización dinámica 📡
+# Captura de geolocalización
 location = get_geolocation()
 
 col_config, col_destino, col_btn = st.columns([2, 2, 1])
@@ -75,26 +72,26 @@ with col_config:
             user_lon = st.number_input("Longitud", value=-87.900000, format="%.6f")
         estado_origen = "Coordenadas Manuales 📌"
 
-# Calcular distancias iniciales 📊
+# Calculamos distancias directas
 for est in estaciones:
     est['distancia_directa'] = haversine(user_lat, user_lon, est['lat'], est['lon'])
 
 estaciones_ordenadas = sorted(estaciones, key=lambda x: x['distancia_directa'])
+nombres_estaciones = [e['nombre'] for e in estaciones_ordenadas]
 
-# Desplegable para elegir destino (priorizando Sigua si está presente) 🔎
+# Estado de la estación seleccionada
+if "estacion_seleccionada" not in st.session_state:
+    index_sigua = next((i for i, nombre in enumerate(nombres_estaciones) if "sigua" in nombre.lower()), 0)
+    st.session_state["estacion_seleccionada"] = nombres_estaciones[index_sigua]
+
 with col_destino:
-    nombres_estaciones = [e['nombre'] for e in estaciones_ordenadas]
-    index_sigua = 0
-    for idx, e in enumerate(nombres_estaciones):
-        if "sigua" in e.lower():
-            index_sigua = idx
-            break
-
-    estacion_seleccionada = st.selectbox(
+    estacion_elegida = st.selectbox(
         "Seleccione la Estación Destino:", 
         nombres_estaciones,
-        index=index_sigua
+        index=nombres_estaciones.index(st.session_state["estacion_seleccionada"]) if st.session_state["estacion_seleccionada"] in nombres_estaciones else 0,
+        key="select_destino"
     )
+    st.session_state["estacion_seleccionada"] = estacion_elegida
 
 with col_btn:
     st.write(" ")
@@ -102,15 +99,15 @@ with col_btn:
     if st.button("Actualizar posición 🔄", use_container_width=True):
         st.rerun()
 
-estacion_destino = next(e for e in estaciones_ordenadas if e['nombre'] == estacion_seleccionada)
+estacion_destino = next(e for e in estaciones_ordenadas if e['nombre'] == st.session_state["estacion_seleccionada"])
 
-# Generar trazo de la ruta vial actual 🚘
+# Obtener la ruta
 puntos_ruta, distancia_ruta_km = obtener_ruta_carretera(
     user_lat, user_lon, 
     estacion_destino['lat'], estacion_destino['lon']
 )
 
-# Métricas informativas 📈
+# Panel de métricas
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
     st.metric("Origen Actual", estado_origen)
@@ -121,22 +118,21 @@ with col_m3:
 
 st.divider()
 
-# Creación del mapa 🗺️
-m = folium.Map(location=[user_lat, user_lon], zoom_start=9, tiles="CartoDB positron")
+# Construcción del mapa
+m = folium.Map(location=[user_lat, user_lon], zoom_start=10, tiles="CartoDB positron")
 
-# Ubicación actual del usuario 👤
+# Marcador dinámico del usuario
 folium.Marker(
     [user_lat, user_lon],
     tooltip="Su posición actual",
     icon=folium.Icon(color="darkblue", icon="user", prefix="fa")
 ).add_to(m)
 
-# Dibujar estaciones: Blancas ⚪ y la seleccionada en Rojo 🔴
+# Puntos de las estaciones
 for est in estaciones_ordenadas:
     es_destino = (est['nombre'] == estacion_destino['nombre'])
-    
     color_punto = "#FF0000" if es_destino else "#FFFFFF"
-    radio_punto = 9 if es_destino else 6
+    radio_punto = 10 if es_destino else 7
 
     folium.CircleMarker(
         location=[est['lat'], est['lon']],
@@ -150,7 +146,7 @@ for est in estaciones_ordenadas:
         fill_opacity=0.95
     ).add_to(m)
 
-# Dibujar la ruta que sigue las carreteras reales 🛣️
+# Trazar la ruta por la calle
 folium.PolyLine(
     locations=puntos_ruta,
     color="#E74C3C",
@@ -158,7 +154,19 @@ folium.PolyLine(
     opacity=0.85
 ).add_to(m)
 
-# Ajuste dinámico de cámara según el avance de la persona 🎥
 m.fit_bounds(puntos_ruta, padding=(30, 30))
 
-st_folium(m, width="100%", height=550, returned_objects=[])
+# Capturar clics sobre los puntos en el mapa 🖱️
+mapa_data = st_folium(m, width="100%", height=550, returned_objects=["last_object_clicked"])
+
+# Si el usuario hace clic en una estación del mapa, actualizar la selección
+if mapa_data and mapa_data.get("last_object_clicked"):
+    click_lat = mapa_data["last_object_clicked"]["lat"]
+    click_lon = mapa_data["last_object_clicked"]["lng"]
+    
+    # Buscar qué estación coincide con las coordenadas tocadas
+    for est in estaciones_ordenadas:
+        if abs(est['lat'] - click_lat) < 0.005 and abs(est['lon'] - click_lon) < 0.005:
+            if st.session_state["estacion_seleccionada"] != est['nombre']:
+                st.session_state["estacion_seleccionada"] = est['nombre']
+                st.rerun()
