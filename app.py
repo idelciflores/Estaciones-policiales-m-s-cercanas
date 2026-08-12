@@ -20,13 +20,13 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Estilo CSS personalizado para limpiar espacio en blanco
+# Estilo visual limpio
 st.markdown("""
     <style>
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
     </style>
-""", unsafe_allow_html=unsafe_allow_html)
+""", unsafe_allow_html=True)
 
 st.title("Sistema de Geolocalización y Cobertura Policial")
 
@@ -40,11 +40,11 @@ except FileNotFoundError:
 # Captura de geolocalización
 location = get_geolocation()
 
-if location:
+if location and 'coords' in location:
     user_lat = location['coords']['latitude']
     user_lon = location['coords']['longitude']
 else:
-    # Coordenadas base por defecto (Siguatepeque / MeÁmbar)
+    # Coordenadas por defecto (Siguatepeque / MeÁmbar)
     user_lat = 14.783300
     user_lon = -87.900000
 
@@ -76,11 +76,11 @@ with col_m1:
 with col_m2:
     st.metric("Distancia Directa", f"{estacion_destino['distancia']:.2f} km")
 with col_m3:
-    st.metric("Estado de Señal GPS", "Activa" if location else "Por defecto")
+    st.metric("Estado GPS", "Activo" if location else "Por defecto")
 
 st.divider()
 
-# Columna izquierda: Tabla organizada | Columna derecha: Mapa limpio
+# Columna izquierda: Tabla | Columna derecha: Mapa
 col_tabla, col_mapa = st.columns([1, 2])
 
 with col_tabla:
@@ -93,7 +93,7 @@ with col_tabla:
 with col_mapa:
     st.markdown("#### Ruta de Cobertura")
     
-    # Mapa base con estilo minimalista
+    # Mapa base limpio
     m = folium.Map(
         location=[user_lat, user_lon], 
         zoom_start=11, 
@@ -107,7 +107,7 @@ with col_mapa:
         icon=folium.Icon(color="darkblue", icon="user", prefix="fa")
     ).add_to(m)
 
-    # Ubicaciones de las estaciones
+    # Ubicación de las estaciones
     for est in estaciones_ordenadas:
         es_destino = est['nombre'] == estacion_destino['nombre']
         color = "red" if es_destino else "gray"
@@ -118,7 +118,7 @@ with col_mapa:
             icon=folium.Icon(color=color, icon="shield", prefix="fa")
         ).add_to(m)
 
-    # Línea de trazado recta punteada
+    # Línea de ruta entre usuario y destino
     linea = [
         [user_lat, user_lon],
         [estacion_destino['lat'], estacion_destino['lon']]
