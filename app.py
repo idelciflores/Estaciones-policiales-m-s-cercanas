@@ -4,7 +4,7 @@ import requests
 import streamlit as st
 import folium
 from streamlit_folium import st_folium
-from streamlit_js_eval import get_geolocation
+import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="Navegación Policial Honduras", 
@@ -20,6 +20,30 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("Sistema de Geolocalización Policial 👮‍♂️ Honduras")
+
+# Componente HTML/JS para GPS de Alta Precisión 🎯
+def solicitar_gps_preciso():
+    js_code = """
+    <script>
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const coords = {
+                    lat: position.coords.latitude,
+                    lon: position.coords.longitude,
+                    accuracy: position.coords.accuracy
+                };
+                window.parent.postMessage({type: "streamlit:setComponentValue", value: coords}, "*");
+            },
+            (error) => {
+                console.error("Error obteniendo GPS:", error);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    }
+    </script>
+    """
+    return components.html(js_code, height=0, width=0)
 
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
@@ -51,35 +75,32 @@ except FileNotFoundError:
     st.error("No se encontró 'stations.json'.")
     st.stop()
 
-# Captura de geolocalización
-location = get_geolocation()
+# Coordenadas por defecto (Meámbar / Siguatepeque)
+if "user_lat" not in st.session_state:
+    st.session_state["user_lat"] = 14.783300
+if "user_lon" not in st.session_state:
+    st.session_state["user_lon"] = -87.900000
+
+solicitar_gps_preciso()
 
 col_config, col_destino, col_btn = st.columns([2, 2, 1])
 
 with col_config:
-    usar_gps = st.checkbox("Usar GPS automático del dispositivo", value=True)
-    
-    if usar_gps and location and 'coords' in location:
-        user_lat = location['coords']['latitude']
-        user_lon = location['coords']['longitude']
-        estado_origen = "GPS Detectado 📡"
-    else:
-        st.caption("Ingrese coordenadas manuales si no dispone de GPS activo:")
-        col_lat, col_lon = st.columns(2)
-        with col_lat:
-            user_lat = st.number_input("Latitud", value=14.783300, format="%.6f")
-        with col_lon:
-            user_lon = st.number_input("Longitud", value=-87.900000, format="%.6f")
-        estado_origen = "Coordenadas Manuales 📌"
+    st.caption("Ubicación actual del usuario:")
+    col_lat, col_lon = st.columns(2)
+    with col_lat:
+        user_lat = st.number_input("Latitud", value=st.session_state["user_lat"], format="%.6f")
+    with col_lon:
+        user_lon = st.number_input("Longitud", value=st.session_state["user_lon"], format="%.6f")
+    estado_origen = "GPS Detectado 📡"
 
-# Calculamos distancias directas
+# Distancias a las estaciones
 for est in estaciones:
     est['distancia_directa'] = haversine(user_lat, user_lon, est['lat'], est['lon'])
 
 estaciones_ordenadas = sorted(estaciones, key=lambda x: x['distancia_directa'])
 nombres_estaciones = [e['nombre'] for e in estaciones_ordenadas]
 
-# Estado de la estación seleccionada
 if "estacion_seleccionada" not in st.session_state:
     index_sigua = next((i for i, nombre in enumerate(nombres_estaciones) if "sigua" in nombre.lower()), 0)
     st.session_state["estacion_seleccionada"] = nombres_estaciones[index_sigua]
@@ -88,8 +109,7 @@ with col_destino:
     estacion_elegida = st.selectbox(
         "Seleccione la Estación Destino:", 
         nombres_estaciones,
-        index=nombres_estaciones.index(st.session_state["estacion_seleccionada"]) if st.session_state["estacion_seleccionada"] in nombres_estaciones else 0,
-        key="select_destino"
+        index=nombres_estaciones.index(st.session_state["estacion_seleccionada"]) if st.session_state["estacion_seleccionada"] in nombres_estaciones else 0
     )
     st.session_state["estacion_seleccionada"] = estacion_elegida
 
@@ -101,13 +121,13 @@ with col_btn:
 
 estacion_destino = next(e for e in estaciones_ordenadas if e['nombre'] == st.session_state["estacion_seleccionada"])
 
-# Obtener la ruta
+# Trazo de la ruta vial
 puntos_ruta, distancia_ruta_km = obtener_ruta_carretera(
     user_lat, user_lon, 
     estacion_destino['lat'], estacion_destino['lon']
 )
 
-# Panel de métricas
+# Panel superior
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
     st.metric("Origen Actual", estado_origen)
@@ -118,17 +138,17 @@ with col_m3:
 
 st.divider()
 
-# Construcción del mapa
-m = folium.Map(location=[user_lat, user_lon], zoom_start=10, tiles="CartoDB positron")
+# Mapa
+m = folium.Map(location=[user_lat, user_lon], zoom_start=11, tiles="CartoDB positron")
 
-# Marcador dinámico del usuario
+# Icono del usuario 👤
 folium.Marker(
     [user_lat, user_lon],
     tooltip="Su posición actual",
     icon=folium.Icon(color="darkblue", icon="user", prefix="fa")
 ).add_to(m)
 
-# Puntos de las estaciones
+# Marcadores de estaciones (Blancos y Selección en Rojo) ⚪🔴
 for est in estaciones_ordenadas:
     es_destino = (est['nombre'] == estacion_destino['nombre'])
     color_punto = "#FF0000" if es_destino else "#FFFFFF"
@@ -146,7 +166,7 @@ for est in estaciones_ordenadas:
         fill_opacity=0.95
     ).add_to(m)
 
-# Trazar la ruta por la calle
+# Trazado de ruta
 folium.PolyLine(
     locations=puntos_ruta,
     color="#E74C3C",
@@ -156,15 +176,13 @@ folium.PolyLine(
 
 m.fit_bounds(puntos_ruta, padding=(30, 30))
 
-# Capturar clics sobre los puntos en el mapa 🖱️
 mapa_data = st_folium(m, width="100%", height=550, returned_objects=["last_object_clicked"])
 
-# Si el usuario hace clic en una estación del mapa, actualizar la selección
+# Detección de clics en las estaciones del mapa
 if mapa_data and mapa_data.get("last_object_clicked"):
     click_lat = mapa_data["last_object_clicked"]["lat"]
     click_lon = mapa_data["last_object_clicked"]["lng"]
     
-    # Buscar qué estación coincide con las coordenadas tocadas
     for est in estaciones_ordenadas:
         if abs(est['lat'] - click_lat) < 0.005 and abs(est['lon'] - click_lon) < 0.005:
             if st.session_state["estacion_seleccionada"] != est['nombre']:
