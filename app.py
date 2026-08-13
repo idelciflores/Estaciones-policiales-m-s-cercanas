@@ -21,25 +21,37 @@ st.markdown("""
 
 st.title("Sistema de Geolocalización Policial 👮‍♂️ Honduras")
 
-# Componente HTML/JS para GPS de Alta Precisión 🎯
-def solicitar_gps_preciso():
+# Componente HTML/JS para Rastreo GPS Real y de Alta Precisión
+def rastreador_gps_tiempo_real():
     js_code = """
     <script>
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                const coords = {
-                    lat: position.coords.latitude,
-                    lon: position.coords.longitude,
-                    accuracy: position.coords.accuracy
-                };
-                window.parent.postMessage({type: "streamlit:setComponentValue", value: coords}, "*");
-            },
-            (error) => {
-                console.error("Error obteniendo GPS:", error);
-            },
-            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-        );
+    function enviarUbicacion(pos) {
+        const coords = {
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+            accuracy: pos.coords.accuracy
+        };
+        window.parent.postMessage({type: "streamlit:setComponentValue", value: coords}, "*");
+    }
+
+    function manejarError(err) {
+        console.warn("Error en GPS real:", err.message);
+    }
+
+    if ("geolocation" in navigator) {
+        // Solicita la posición exacta del chip GPS del dispositivo
+        navigator.geolocation.getCurrentPosition(enviarUbicacion, manejarError, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0
+        });
+
+        // Rastrea cambios de ubicación en tiempo real si el usuario se mueve de barrio o ciudad
+        navigator.geolocation.watchPosition(enviarUbicacion, manejarError, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 3000
+        });
     }
     </script>
     """
@@ -67,34 +79,41 @@ def obtener_ruta_carretera(lat_origen, lon_origen, lat_destino, lon_destino):
         pass
     return [[lat_origen, lon_origen], [lat_destino, lon_destino]], haversine(lat_origen, lon_origen, lat_destino, lon_destino)
 
-# Cargar json
+# Cargar json de estaciones policiales
 try:
     with open('stations.json', 'r', encoding='utf-8') as f:
         estaciones = json.load(f)
 except FileNotFoundError:
-    st.error("No se encontró 'stations.json'.")
+    st.error("No se encontró 'stations.json'. Por favor asegúrate de que el archivo existe.")
     st.stop()
 
-# Coordenadas por defecto (Meámbar / Siguatepeque)
+# Captura de datos provenientes del componente GPS en JS
+datos_gps = rastreador_gps_tiempo_real()
+
+if datos_gps and isinstance(datos_gps, dict):
+    st.session_state["user_lat"] = datos_gps["lat"]
+    st.session_state["user_lon"] = datos_gps["lon"]
+
+# Si el navegador aún no responde con la primera coordenada, no fuerza una fija
 if "user_lat" not in st.session_state:
-    st.session_state["user_lat"] = 14.783300
+    st.session_state["user_lat"] = 14.7951
 if "user_lon" not in st.session_state:
-    st.session_state["user_lon"] = -87.900000
+    st.session_state["user_lon"] = -87.8042
 
-solicitar_gps_preciso()
-
-col_config, col_destino, col_btn = st.columns([2, 2, 1])
+col_config, col_destino = st.columns([2, 2])
 
 with col_config:
-    st.caption("Ubicación actual del usuario:")
+    st.caption("📍 Coordenadas de tu posición actual (GPS):")
     col_lat, col_lon = st.columns(2)
     with col_lat:
-        user_lat = st.number_input("Latitud", value=st.session_state["user_lat"], format="%.6f")
+        user_lat = st.number_input("Latitud", value=float(st.session_state["user_lat"]), format="%.6f", key="input_lat")
     with col_lon:
-        user_lon = st.number_input("Longitud", value=st.session_state["user_lon"], format="%.6f")
-    estado_origen = "GPS Detectado 📡"
+        user_lon = st.number_input("Longitud", value=float(st.session_state["user_lon"]), format="%.6f", key="input_lon")
 
-# Distancias a las estaciones
+st.session_state["user_lat"] = user_lat
+st.session_state["user_lon"] = user_lon
+
+# Ordenar estaciones por proximidad
 for est in estaciones:
     est['distancia_directa'] = haversine(user_lat, user_lon, est['lat'], est['lon'])
 
@@ -102,8 +121,7 @@ estaciones_ordenadas = sorted(estaciones, key=lambda x: x['distancia_directa'])
 nombres_estaciones = [e['nombre'] for e in estaciones_ordenadas]
 
 if "estacion_seleccionada" not in st.session_state:
-    index_sigua = next((i for i, nombre in enumerate(nombres_estaciones) if "sigua" in nombre.lower()), 0)
-    st.session_state["estacion_seleccionada"] = nombres_estaciones[index_sigua]
+    st.session_state["estacion_seleccionada"] = nombres_estaciones[0]
 
 with col_destino:
     estacion_elegida = st.selectbox(
@@ -113,42 +131,36 @@ with col_destino:
     )
     st.session_state["estacion_seleccionada"] = estacion_elegida
 
-with col_btn:
-    st.write(" ")
-    st.write(" ")
-    if st.button("Actualizar posición 🔄", use_container_width=True):
-        st.rerun()
-
 estacion_destino = next(e for e in estaciones_ordenadas if e['nombre'] == st.session_state["estacion_seleccionada"])
 
-# Trazo de la ruta vial
+# Cálculo de la ruta por carretera
 puntos_ruta, distancia_ruta_km = obtener_ruta_carretera(
     user_lat, user_lon, 
     estacion_destino['lat'], estacion_destino['lon']
 )
 
-# Panel superior
+# Métricas en pantalla
 col_m1, col_m2, col_m3 = st.columns(3)
 with col_m1:
-    st.metric("Origen Actual", estado_origen)
+    st.metric("Origen", "GPS En Vivo 📡")
 with col_m2:
-    st.metric("Estación Destino", estacion_destino['nombre'])
+    st.metric("Estación Mas Cercana / Destino", estacion_destino['nombre'])
 with col_m3:
     st.metric("Distancia por Carretera", f"{distancia_ruta_km:.2f} km")
 
 st.divider()
 
-# Mapa
-m = folium.Map(location=[user_lat, user_lon], zoom_start=11, tiles="CartoDB positron")
+# Generación del Mapa interactivo
+m = folium.Map(location=[user_lat, user_lon], zoom_start=14, tiles="CartoDB positron")
 
-# Icono del usuario 👤
+# Marcador del Usuario (Ubicación en tiempo real)
 folium.Marker(
     [user_lat, user_lon],
-    tooltip="Su posición actual",
-    icon=folium.Icon(color="darkblue", icon="user", prefix="fa")
+    tooltip="Tu ubicación en tiempo real",
+    icon=folium.Icon(color="blue", icon="user", prefix="fa")
 ).add_to(m)
 
-# Marcadores de estaciones (Blancos y Selección en Rojo) ⚪🔴
+# Marcadores de las estaciones policiales
 for est in estaciones_ordenadas:
     es_destino = (est['nombre'] == estacion_destino['nombre'])
     color_punto = "#FF0000" if es_destino else "#FFFFFF"
@@ -178,7 +190,7 @@ m.fit_bounds(puntos_ruta, padding=(30, 30))
 
 mapa_data = st_folium(m, width="100%", height=550, returned_objects=["last_object_clicked"])
 
-# Detección de clics en las estaciones del mapa
+# Detección de clics en las estaciones del mapa para cambiar destino
 if mapa_data and mapa_data.get("last_object_clicked"):
     click_lat = mapa_data["last_object_clicked"]["lat"]
     click_lon = mapa_data["last_object_clicked"]["lng"]
