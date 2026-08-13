@@ -1,5 +1,6 @@
 streamlit
-streamlit-folium
 folium
+streamlit-folium
 streamlit-js-eval
-pandas
+streamlit-autorefresh
+requests
