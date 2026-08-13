@@ -9,22 +9,23 @@ import json
 # --- Configuración Pro ---
 st.set_page_config(page_title="Navegación Policial", layout="wide", initial_sidebar_state="expanded")
 
-# Inyectar CSS para look profesional
+# Inyectar CSS
 st.markdown("""
     <style>
-    /* Ocultar padding excesivo de Streamlit */
     .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-    /* Hacer el mapa responsivo al 90% de la altura de la pantalla */
     .stFolium { width: 100%; height: 80vh !important; }
-    /* Estilo de tarjeta para los datos */
-    .css-1r6slp0 { background-color: #f0f2f6; border-radius: 10px; padding: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
-# Refresco cada 10s (mejor para batería en móviles que 5s)
+# Refresco automático
 st_autorefresh(interval=10000, key="nav_refresh")
 
-# Funciones
+# Cache para optimizar carga de estaciones
+@st.cache_data
+def cargar_estaciones():
+    with open('stations.json', 'r', encoding='utf-8') as f:
+        return json.load(f)
+
 def get_legal_route(lat1, lon1, lat2, lon2):
     url = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
     try:
@@ -36,8 +37,7 @@ def get_legal_route(lat1, lon1, lat2, lon2):
     return None
 
 # Carga de datos
-with open('stations.json', 'r', encoding='utf-8') as f:
-    estaciones = json.load(f)
+estaciones = cargar_estaciones()
 
 # Estado
 if 'pos' not in st.session_state: st.session_state.pos = {'lat': 14.7833, 'lon': -87.9000}
@@ -45,18 +45,16 @@ loc = get_geolocation()
 if loc and 'coords' in loc:
     st.session_state.pos = {'lat': loc['coords']['latitude'], 'lon': loc['coords']['longitude']}
 
-# --- SIDEBAR (Configuración) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ Panel de Control")
-    st.write("---")
     nombres = [e['nombre'] for e in estaciones]
     sel = st.selectbox("Seleccione Destino:", nombres)
     dest = next(e for e in estaciones if e['nombre'] == sel)
-    st.write("---")
     st.metric("Estado", "🟢 En vivo", delta="GPS Activo")
-    st.info("El sistema recalcula la ruta automáticamente al moverte.")
+    st.info("Recalculando ruta automáticamente...")
 
-# --- MAIN (Mapa) ---
+# --- MAIN ---
 ruta = get_legal_route(st.session_state.pos['lat'], st.session_state.pos['lon'], dest['lat'], dest['lon'])
 
 m = folium.Map(location=[st.session_state.pos['lat'], st.session_state.pos['lon']], zoom_start=17, tiles="CartoDB positron")
