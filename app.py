@@ -1,5 +1,5 @@
-import json
 import math
+import json  # ¡Importante! Faltaba este
 import requests
 import streamlit as st
 import folium
@@ -12,6 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Estilos profesionales
 st.markdown("""
     <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 1.5rem; }
@@ -19,8 +20,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("Sistema de Geolocalización Policial 👮‍♂️ Honduras")
+st.title("👮‍♂️ Sistema de Geolocalización Policial - Honduras")
 
+# --- FUNCIONES ---
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
     dlat = math.radians(lat2 - lat1)
@@ -43,42 +45,45 @@ def obtener_ruta_carretera(lat_origen, lon_origen, lat_destino, lon_destino):
         pass
     return [[lat_origen, lon_origen], [lat_destino, lon_destino]], haversine(lat_origen, lon_origen, lat_destino, lon_destino)
 
-# Cargar json de estaciones policiales
+# --- CARGA DE DATOS ---
 try:
     with open('stations.json', 'r', encoding='utf-8') as f:
         estaciones = json.load(f)
 except FileNotFoundError:
-    st.error("No se encontró 'stations.json'.")
+    st.error("Error: No se encontró 'stations.json'.")
     st.stop()
 
-# Obtención del GPS del navegador
-loc = get_geolocation()
+# --- LÓGICA DE UBICACIÓN (CORREGIDA PARA SER ESTABLE) ---
+st.subheader("Configuración de Origen")
+col_tipo, col_lat_in, col_lon_in = st.columns([1, 1, 1])
 
-if loc and "coords" in loc:
-    st.session_state["user_lat"] = loc["coords"]["latitude"]
-    st.session_state["user_lon"] = loc["coords"]["longitude"]
-    estado_gps = "GPS Real Detectado 📡"
+# Selector de modo
+with col_tipo:
+    modo = st.radio("Seleccione modo de ubicación:", ["Manual", "GPS Automático"], index=0)
+
+# Inicializar estados si no existen
+if "user_lat" not in st.session_state: st.session_state["user_lat"] = 14.7951
+if "user_lon" not in st.session_state: st.session_state["user_lon"] = -87.8042
+
+if modo == "GPS Automático":
+    loc = get_geolocation()
+    if loc and "coords" in loc:
+        st.session_state["user_lat"] = loc["coords"]["latitude"]
+        st.session_state["user_lon"] = loc["coords"]["longitude"]
+        estado_gps = "GPS Real Detectado 📡"
+    else:
+        estado_gps = "Esperando señal GPS... ⏳"
 else:
-    if "user_lat" not in st.session_state:
-        st.session_state["user_lat"] = 14.7951
-    if "user_lon" not in st.session_state:
-        st.session_state["user_lon"] = -87.8042
-    estado_gps = "Ubicación Manual / Esperando GPS ⏳"
+    estado_gps = "Modo Manual ✍️"
+    with col_lat_in:
+        st.session_state["user_lat"] = st.number_input("Latitud", value=st.session_state["user_lat"], format="%.6f")
+    with col_lon_in:
+        st.session_state["user_lon"] = st.number_input("Longitud", value=st.session_state["user_lon"], format="%.6f")
 
-col_config, col_destino = st.columns([2, 2])
+user_lat = st.session_state["user_lat"]
+user_lon = st.session_state["user_lon"]
 
-with col_config:
-    st.caption("📍 Coordenadas de origen:")
-    col_lat, col_lon = st.columns(2)
-    with col_lat:
-        user_lat = st.number_input("Latitud", value=float(st.session_state["user_lat"]), format="%.6f", key="input_lat")
-    with col_lon:
-        user_lon = st.number_input("Longitud", value=float(st.session_state["user_lon"]), format="%.6f", key="input_lon")
-
-st.session_state["user_lat"] = user_lat
-st.session_state["user_lon"] = user_lon
-
-# Ordenar estaciones
+# --- CÁLCULO Y DESTINO ---
 for est in estaciones:
     est['distancia_directa'] = haversine(user_lat, user_lon, est['lat'], est['lon'])
 
@@ -88,79 +93,40 @@ nombres_estaciones = [e['nombre'] for e in estaciones_ordenadas]
 if "estacion_seleccionada" not in st.session_state:
     st.session_state["estacion_seleccionada"] = nombres_estaciones[0]
 
-with col_destino:
-    estacion_elegida = st.selectbox(
-        "Seleccione la Estación Destino:", 
-        nombres_estaciones,
-        index=nombres_estaciones.index(st.session_state["estacion_seleccionada"]) if st.session_state["estacion_seleccionada"] in nombres_estaciones else 0
-    )
-    st.session_state["estacion_seleccionada"] = estacion_elegida
+estacion_elegida = st.selectbox("Seleccione la Estación Destino:", nombres_estaciones)
+st.session_state["estacion_seleccionada"] = estacion_elegida
 
-estacion_destino = next(e for e in estaciones_ordenadas if e['nombre'] == st.session_state["estacion_seleccionada"])
+estacion_destino = next(e for e in estaciones_ordenadas if e['nombre'] == estacion_elegida)
 
-# Ruta por carretera
+# Obtener ruta
 puntos_ruta, distancia_ruta_km = obtener_ruta_carretera(
-    user_lat, user_lon, 
-    estacion_destino['lat'], estacion_destino['lon']
+    user_lat, user_lon, estacion_destino['lat'], estacion_destino['lon']
 )
 
 # Métricas
 col_m1, col_m2, col_m3 = st.columns(3)
-with col_m1:
-    st.metric("Origen", estado_gps)
-with col_m2:
-    st.metric("Estación Destino", estacion_destino['nombre'])
-with col_m3:
-    st.metric("Distancia por Carretera", f"{distancia_ruta_km:.2f} km")
+col_m1.metric("Origen", estado_gps)
+col_m2.metric("Destino", estacion_destino['nombre'])
+col_m3.metric("Distancia", f"{distancia_ruta_km:.2f} km")
 
-st.divider()
-
-# Generación del Mapa
+# --- MAPA ---
 m = folium.Map(location=[user_lat, user_lon], zoom_start=13, tiles="CartoDB positron")
 
-# Marcador del usuario
-folium.Marker(
-    [user_lat, user_lon],
-    tooltip="Posición del Usuario",
-    icon=folium.Icon(color="blue", icon="user", prefix="fa")
-).add_to(m)
+folium.Marker([user_lat, user_lon], tooltip="Usuario", icon=folium.Icon(color="blue", icon="user", prefix="fa")).add_to(m)
 
-# Estaciones
 for est in estaciones_ordenadas:
     es_destino = (est['nombre'] == estacion_destino['nombre'])
-    color_punto = "#FF0000" if es_destino else "#FFFFFF"
-    radio_punto = 10 if es_destino else 7
-
     folium.CircleMarker(
         location=[est['lat'], est['lon']],
-        radius=radio_punto,
+        radius=10 if es_destino else 7,
         popup=est['nombre'],
         tooltip=f"{est['nombre']} ({est['distancia_directa']:.2f} km)",
-        color="#000000",
-        weight=2,
+        color="black",
         fill=True,
-        fill_color=color_punto,
-        fill_opacity=0.95
+        fill_color="#FF0000" if es_destino else "#FFFFFF"
     ).add_to(m)
 
-# Trazado
-folium.PolyLine(
-    locations=puntos_ruta,
-    color="#E74C3C",
-    weight=5,
-    opacity=0.85
-).add_to(m)
-
+folium.PolyLine(locations=puntos_ruta, color="#E74C3C", weight=5, opacity=0.85).add_to(m)
 m.fit_bounds(puntos_ruta, padding=(30, 30))
 
-mapa_data = st_folium(m, width="100%", height=550, returned_objects=["last_object_clicked"])
-
-if mapa_data and mapa_data.get("last_object_clicked"):
-    click_lat = mapa_data["last_object_clicked"]["lat"]
-    click_lon = mapa_data["last_object_clicked"]["lng"]
-    
-    for est in estaciones_ordenadas:
-        if abs(est['lat'] - click_lat) < 0.005 and abs(est['lon'] - click_lon) < 0.005:
-            if st.session_state["estacion_seleccionada"] != est['nombre']:
-                st.session_state["estacion_seleccionada"] = est['nombre']
-                st.rerun()
+st_folium(m, width="100%", height=550)
